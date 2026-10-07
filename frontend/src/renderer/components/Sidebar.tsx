@@ -469,6 +469,7 @@ function AnimatedSectionBody({ open, children, className }: { open: boolean; chi
 	);
 }
 const expandedProjectsStorageKey = "ao.sidebar.expanded-projects";
+const projectOrderStorageKey = "ao.sidebar.project-order";
 
 function readExpandedProjectIds(): ReadonlySet<string> {
 	if (typeof window === "undefined" || !window.localStorage) return new Set();
@@ -730,11 +731,31 @@ export function Sidebar({
 		onExpand: () => setOpen(true),
 	});
 
-	const [projectOrder, setProjectOrder] = useState<string[]>([]);
+	const [projectOrder, setProjectOrder] = useState<string[]>(() => {
+		try {
+			const saved: unknown = JSON.parse(window.localStorage.getItem(projectOrderStorageKey) ?? "null");
+			if (Array.isArray(saved)) return [...new Set(saved.filter((id): id is string => typeof id === "string"))];
+		} catch { /* Keep the sidebar usable when storage is unavailable. */ }
+		return workspaces.map((workspace) => workspace.id);
+	});
+	useEffect(() => {
+		try {
+			window.localStorage.setItem(projectOrderStorageKey, JSON.stringify(projectOrder));
+		} catch { /* Ordering still works for this app session. */ }
+	}, [projectOrder]);
 	const orderedWorkspaces = useMemo(
-		() => applyOrder(workspaces, (workspace) => workspace.id, projectOrder, "end"),
+		() => applyOrder(workspaces, (workspace) => workspace.id, projectOrder, "start"),
 		[projectOrder, workspaces],
 	);
+	// New projects enter at the top once. Retain that order when a daemon
+	// refresh returns its alphabetical list, while preserving drag ordering.
+	// Preserve saved IDs while the initial workspace query is still empty.
+	const visibleProjectIds = orderedWorkspaces.map((workspace) => workspace.id);
+	const nextProjectOrder = [...visibleProjectIds, ...projectOrder.filter((id) => !visibleProjectIds.includes(id))];
+	if (nextProjectOrder.length !== projectOrder.length || nextProjectOrder.some((id, index) => id !== projectOrder[index])) {
+		setProjectOrder(nextProjectOrder);
+	}
+
 	// The ad hoc group is a bucket for projectless sessions, not a project: it
 	// gets its own Scratchpad section below the project list rather than a
 	// project row appended to the end of it.
@@ -1316,7 +1337,7 @@ const ProjectItem = memo(function ProjectItem({
 		workspace.sessions.some(
 			(session) => session.id === selection.activeSessionId && session.kind === "orchestrator",
 		);
-	const projectActive = dashboardActive || orchestratorActive;
+
 	const queryClient = useQueryClient();
 	const [removeError, setRemoveError] = useState<string | null>(null);
 	const [isRemoving, setIsRemoving] = useState(false);
@@ -1333,6 +1354,7 @@ const ProjectItem = memo(function ProjectItem({
 	}, []);
 	const projectKey = sessionUiKey(workspace.id, workspace.hostId);
 	const isProjectProvisioning = useUiStore((state) => state.provisioningProjectIds.has(projectKey));
+	const projectActive = dashboardActive || orchestratorActive || (activeProjectMatches && isProjectProvisioning);
 	const isProjectRestarting = useUiStore((state) => state.restartingProjectIds.has(projectKey));
 	const requestNewTask = useUiStore((state) => state.requestNewTask);
 	const showGlobalToast = useUiStore((state) => state.showGlobalToast);
@@ -1398,7 +1420,7 @@ const ProjectItem = memo(function ProjectItem({
 	// Expand a collapsed project so opening the orchestrator also reveals its
 	// session list — otherwise the tree stays shut while you're inside it.
 	const openOrchestrator = async () => {
-		if (isProjectProvisioning || isProjectRestarting) return;
+		if (isSpawning || isProjectProvisioning || isProjectRestarting) return;
 		if (!expanded) toggleDisclosure();
 		if (onOpenOrchestrator) {
 			onOpenOrchestrator();
@@ -1458,6 +1480,7 @@ const ProjectItem = memo(function ProjectItem({
 		}
 	};
 
+	// Projects without worker sessions open their orchestrator.
 	// Expanded + already on the project board → collapse. Expanded + on a
 	// session (orchestrator or worker) → board. Collapsed → expand + board.
 	// Do not treat orchestratorActive like the board: the project row is the
@@ -1466,6 +1489,10 @@ const ProjectItem = memo(function ProjectItem({
 		if (consumeDragClick(workspace.id)) return;
 		if (isStandalone) {
 			toggleDisclosure();
+			return;
+		}
+		if (workerSessions(workspace.sessions).length === 0) {
+			void openOrchestrator();
 			return;
 		}
 		if (!expanded) {
@@ -1528,7 +1555,7 @@ const ProjectItem = memo(function ProjectItem({
 					data-host-id={workspace.hostId}
 					data-sidebar="menu-item"
 					data-slot="sidebar-menu-item"
-					initial={{ opacity: 0, y: -4 }}
+					initial={false}
 					animate={{ opacity: 1, y: 0 }}
 					exit={{ opacity: 0, y: -4, transition: { duration: prefersReducedMotion ? 0 : 0.12, ease: "easeIn" } }}
 					onDragOver={(event) => onProjectDragOver(event, workspace.id)}
