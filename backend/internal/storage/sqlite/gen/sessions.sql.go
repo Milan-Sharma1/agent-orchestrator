@@ -175,7 +175,7 @@ SELECT id, project_id, num, issue_id, kind, harness,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
     native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
-    provision_state, provision_error, provision_steps, is_task_preparation, automation_run_id, automation_launch_completed,
+    provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts
 FROM sessions WHERE id = ?
 `
@@ -241,6 +241,7 @@ type GetSessionRow struct {
 	ProvisionState                   domain.SessionProvisionState
 	ProvisionError                   string
 	ProvisionSteps                   string
+	BranchState                      string
 	IsTaskPreparation                bool
 	AutomationRunID                  *domain.AutomationRunID
 	AutomationLaunchCompleted        bool
@@ -312,6 +313,7 @@ func (q *Queries) GetSession(ctx context.Context, id domain.SessionID) (GetSessi
 		&i.ProvisionState,
 		&i.ProvisionError,
 		&i.ProvisionSteps,
+		&i.BranchState,
 		&i.IsTaskPreparation,
 		&i.AutomationRunID,
 		&i.AutomationLaunchCompleted,
@@ -335,7 +337,7 @@ SELECT id, project_id, num, issue_id, kind, harness,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
     native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
-    provision_state, provision_error, provision_steps, is_task_preparation, automation_run_id, automation_launch_completed,
+    provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts
 FROM sessions WHERE automation_run_id = ?
 `
@@ -401,6 +403,7 @@ type GetSessionByAutomationRunIDRow struct {
 	ProvisionState                   domain.SessionProvisionState
 	ProvisionError                   string
 	ProvisionSteps                   string
+	BranchState                      string
 	IsTaskPreparation                bool
 	AutomationRunID                  *domain.AutomationRunID
 	AutomationLaunchCompleted        bool
@@ -472,6 +475,7 @@ func (q *Queries) GetSessionByAutomationRunID(ctx context.Context, automationRun
 		&i.ProvisionState,
 		&i.ProvisionError,
 		&i.ProvisionSteps,
+		&i.BranchState,
 		&i.IsTaskPreparation,
 		&i.AutomationRunID,
 		&i.AutomationLaunchCompleted,
@@ -655,7 +659,7 @@ SELECT id, project_id, num, issue_id, kind, harness,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
     native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
-    provision_state, provision_error, provision_steps, is_task_preparation, automation_run_id, automation_launch_completed,
+    provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts
 FROM sessions ORDER BY project_id, num
 `
@@ -721,6 +725,7 @@ type ListAllSessionsRow struct {
 	ProvisionState                   domain.SessionProvisionState
 	ProvisionError                   string
 	ProvisionSteps                   string
+	BranchState                      string
 	IsTaskPreparation                bool
 	AutomationRunID                  *domain.AutomationRunID
 	AutomationLaunchCompleted        bool
@@ -798,6 +803,7 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]ListAllSessionsRow, er
 			&i.ProvisionState,
 			&i.ProvisionError,
 			&i.ProvisionSteps,
+			&i.BranchState,
 			&i.IsTaskPreparation,
 			&i.AutomationRunID,
 			&i.AutomationLaunchCompleted,
@@ -831,7 +837,7 @@ SELECT id, project_id, num, issue_id, kind, harness,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
     native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
-    provision_state, provision_error, provision_steps, is_task_preparation, automation_run_id, automation_launch_completed,
+    provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts
 FROM sessions WHERE project_id IS ? ORDER BY num
 `
@@ -897,6 +903,7 @@ type ListSessionsByProjectRow struct {
 	ProvisionState                   domain.SessionProvisionState
 	ProvisionError                   string
 	ProvisionSteps                   string
+	BranchState                      string
 	IsTaskPreparation                bool
 	AutomationRunID                  *domain.AutomationRunID
 	AutomationLaunchCompleted        bool
@@ -974,6 +981,7 @@ func (q *Queries) ListSessionsByProject(ctx context.Context, projectID *domain.P
 			&i.ProvisionState,
 			&i.ProvisionError,
 			&i.ProvisionSteps,
+			&i.BranchState,
 			&i.IsTaskPreparation,
 			&i.AutomationRunID,
 			&i.AutomationLaunchCompleted,
@@ -1331,6 +1339,28 @@ type SetSessionAutoReviewParams struct {
 
 func (q *Queries) SetSessionAutoReview(ctx context.Context, arg SetSessionAutoReviewParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setSessionAutoReview, arg.AutoReviewEnabled, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setSessionBranchState = `-- name: SetSessionBranchState :execrows
+UPDATE sessions SET
+    branch_state = ?1
+WHERE id = ?2
+`
+
+type SetSessionBranchStateParams struct {
+	BranchState string
+	ID          domain.SessionID
+}
+
+// Narrow write for the branch observer: it names only branch_state, so a
+// stale read can never replay other session columns. updated_at is left
+// alone because an observed git fact is not user-visible recency.
+func (q *Queries) SetSessionBranchState(ctx context.Context, arg SetSessionBranchStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setSessionBranchState, arg.BranchState, arg.ID)
 	if err != nil {
 		return 0, err
 	}
