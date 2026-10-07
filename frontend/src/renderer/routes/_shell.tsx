@@ -1,4 +1,4 @@
-import { OrchestratorLoadingScreen } from "../components/OrchestratorLoadingScreen";
+import { OrchestratorStartingChat } from "../components/chat/OrchestratorStartingChat";
 import { useWindowZoomFactor } from "../hooks/useWindowZoomFactor";
 import { AppBrowserLinkContext } from "../components/AppLink";
 import { useSessionBrowserLink } from "../hooks/useSessionBrowserLink";
@@ -132,23 +132,28 @@ const ShellCenter = memo(function ShellCenter({
 	hideShellTopbar,
 	isSessionRoute,
 	selfFramedCenterPanel,
+	startingOrchestrator,
 }: {
 	hideShellTopbar: boolean;
 	isSessionRoute: boolean;
 	selfFramedCenterPanel: boolean;
+	startingOrchestrator: boolean;
 }) {
 	const panelClassName = isSessionRoute ? "center-panel-shell--session" : undefined;
 	// Linux retains an outer drag strip. macOS uses the shared header itself;
 	// an extra strip there would displace session tabs from the native controls.
 	// Windows already owns a separate WindowTitlebar.
 	const draggableSessionFrame = isSessionRoute && isLinux;
+	const startingChat = startingOrchestrator ? <OrchestratorStartingChat /> : null;
+	const outlet = <>
+		<div className={startingOrchestrator ? "hidden" : "contents"}><Outlet /></div>
+		{selfFramedCenterPanel && startingChat ? <CenterPanelShell>{startingChat}</CenterPanelShell> : startingChat}
+	</>;
 	if (hideShellTopbar) {
-		return selfFramedCenterPanel ? (
-			<Outlet />
-		) : (
+		return selfFramedCenterPanel ? outlet : (
 			<CenterPanelShell className={panelClassName} draggableSessionFrame={draggableSessionFrame}>
 				<div className="flex min-h-0 flex-1 flex-col">
-					<Outlet />
+					{outlet}
 				</div>
 			</CenterPanelShell>
 		);
@@ -158,7 +163,7 @@ const ShellCenter = memo(function ShellCenter({
 			<CenterPanelShell className={panelClassName} draggableSessionFrame={draggableSessionFrame}>
 				{isSessionRoute ? null : <ShellTopbar />}
 				<div className="flex min-h-0 flex-1 flex-col">
-					<Outlet />
+					{outlet}
 				</div>
 			</CenterPanelShell>
 		);
@@ -166,7 +171,7 @@ const ShellCenter = memo(function ShellCenter({
 	return (
 		<CenterPanelShell className={panelClassName} draggableSessionFrame={draggableSessionFrame}>
 			<div className="flex min-h-0 flex-1 flex-col">
-				<Outlet />
+				{outlet}
 			</div>
 		</CenterPanelShell>
 	);
@@ -407,9 +412,9 @@ function ShellLayout() {
 	const setOrchestratorStartupError = useUiStore((state) => state.setOrchestratorStartupError);
 	const setProjectProvisioning = useUiStore((state) => state.setProjectProvisioning);
 	const openingOrchestrator = useUiStore((state) =>
-		state.projectCreationPending || Boolean(
+		state.projectCreationPending || (!routeParams.sessionId && Boolean(
 			routeParams.projectId && state.provisioningProjectIds.has(sessionUiKey(routeParams.projectId, routeParams.hostId)),
-		),
+		)),
 	);
 	const showGlobalToast = useUiStore((state) => state.showGlobalToast);
 	const replacementErrorProjectId = Object.keys(orchestratorReplacementErrors)[0] ?? null;
@@ -1277,14 +1282,14 @@ function ShellLayout() {
 						remoteFailedHostIds={remoteFailedHostIds}
 					/>
 					<main className={cn("flex min-w-0 flex-1 flex-col overflow-x-hidden", !sidebarHasLayout && "sidebar-hidden")}>
-						<div className="relative min-h-0 flex-1 overflow-x-hidden" data-orchestrator-page>
+						<div className="relative min-h-0 flex-1 overflow-x-hidden">
 							{/* Board/session routes render inside the same inset box the welcome board and settings paint for themselves, so every screen sits within the app's outer boundary. */}
 							<ShellCenter
 								hideShellTopbar={hideShellTopbar}
 								isSessionRoute={Boolean(routeParams.sessionId)}
 								selfFramedCenterPanel={selfFramedCenterPanel}
+								startingOrchestrator={openingOrchestrator}
 							/>
-							{openingOrchestrator ? <OrchestratorLoadingScreen framed /> : null}
 						</div>
 						</main>
 					</div>

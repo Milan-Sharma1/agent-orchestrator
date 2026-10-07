@@ -157,6 +157,7 @@ export const ChatComposer = memo(function ChatComposer({
 	queuePlaceholder,
 	disabled,
 	disabledPlaceholder,
+	placeholderShimmer,
 	settings,
 	approval,
 	elicitation,
@@ -219,6 +220,7 @@ export const ChatComposer = memo(function ChatComposer({
 	disabled?: boolean;
 	/** Explains why message entry is temporarily blocked. */
 	disabledPlaceholder?: string;
+	placeholderShimmer?: boolean;
 	/** A contextual prompt shown before an otherwise empty conversation begins. */
 	emptyPlaceholder?: string;
 	/** The provider's skills. Empty leaves `/` an ordinary character. */
@@ -1586,6 +1588,7 @@ export const ChatComposer = memo(function ChatComposer({
 					images={composerImages}
 					disabled={controlsDisabled || queuedEditRecovery || draftMutationPending}
 					label="Message the agent"
+					placeholderShimmer={placeholderShimmer}
 					placeholder={
 						disabledPlaceholder ?? (disabled
 							? "The controller is not connected"
