@@ -82,10 +82,13 @@ export function ShellTopbar({
 	embedded = false,
 	sessionAction,
 	compactActions = false,
+	startingOrchestrator = false,
 }: {
 	embedded?: boolean;
 	sessionAction?: ReactNode;
 	compactActions?: boolean;
+	/** Use the real orchestrator controls before its session is addressable. */
+	startingOrchestrator?: boolean;
 } = {}) {
 	const { t } = useTranslation();
 	const location = useLocation();
@@ -93,7 +96,7 @@ export function ShellTopbar({
 	const navigate = useNavigate();
 	const params = useParams({ strict: false }) as { hostId?: string; projectId?: string; sessionId?: string };
 	const hostId = params.hostId;
-	const currentSessionId = params.sessionId;
+	const currentSessionId = startingOrchestrator ? undefined : params.sessionId;
 	const isSidebarOpen = useUiStore(sidebarOccupiesLayout);
 	const isFullScreen = useWindowFullScreen();
 	const prefersReducedMotion = useReducedMotion();
@@ -119,11 +122,11 @@ export function ShellTopbar({
 	}, [targetPaddingLeft, paddingLeft, prefersReducedMotion]);
 	const workspaceQuery = useWorkspaceScope(params.projectId, params.sessionId, hostId);
 	const workspaceScope = workspaceQuery.data;
-	const session = workspaceScope?.session;
-	const isSessionRoute = Boolean(params.sessionId);
+	const session = startingOrchestrator ? undefined : workspaceScope?.session;
+	const isSessionRoute = startingOrchestrator || Boolean(params.sessionId);
 	const isAutomationsRoute = location.pathname === "/automations";
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
-	const isOrchestrator = session ? isOrchestratorSession(session) : false;
+	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
 	const isInspectorOpen = useUiStore((state) =>
 		currentSessionId ? inspectorIsOpen(state.inspectorSessions, sessionUiKey(currentSessionId, hostId)) : false,
 	);
@@ -241,7 +244,7 @@ export function ShellTopbar({
 												aria-label={t("shell.newTask")}
 												className="topbar-control--labeled"
 												data-priority="primary"
-												disabled={isProjectRestarting || isProvisioning}
+												disabled={startingOrchestrator || isProjectRestarting || isProvisioning}
 												onClick={openNewTask}
 												variant="accent"
 											>
@@ -256,6 +259,7 @@ export function ShellTopbar({
 									<TooltipTrigger asChild>
 										<TopbarButton
 											aria-label={t("shell.openKanban")}
+											disabled={startingOrchestrator}
 											className="topbar-control--labeled"
 											data-priority="secondary"
 											onClick={openBoard}
@@ -359,7 +363,7 @@ export function ShellTopbar({
 				{isSessionRoute ? (
 					/* The pinned controls are owned by SessionView so they stay at the
 					   window's right edge. Reserve their width only when the rail is closed. */
-					<div
+					startingOrchestrator ? null : <div
 						className="session-pinned-actions-reserve"
 						data-state={isInspectorOpen ? "collapsed" : "expanded"}
 						data-testid="session-pinned-actions-reserve"
